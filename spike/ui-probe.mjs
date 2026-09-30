@@ -177,8 +177,22 @@ async function waitForRows(cdp, timeoutMs = 30000) {
 // ---------------------------------------------------------------------------
 
 function killStrayElectron() {
-  // 残留实例持有单实例锁，会让下一次启动静默 exit 0 —— 探针会卡在等窗口上
-  spawnSync('taskkill', ['/IM', 'electron.exe', '/T', '/F'], { stdio: 'ignore' })
+  // 残留实例持有单实例锁，会让下一次启动静默 exit 0 —— 探针会卡在等窗口上。
+  //
+  // 但绝不能按映像名 `electron.exe` 一锅端：Electron 的开发态进程全都叫这个名字，
+  // 那样会把同一台机器上**别人正在跑的**实例一起杀掉 —— 其他项目的 `npm run dev`、
+  // 甚至用户自己开的这个仓库的窗口。只清理「命令行里指向本仓库」的那些，
+  // 也就是这个探针自己以前留下的残留。
+  //
+  // 路径在命令行里可能是任意大小写，所以两边都转小写再比；单引号对 PowerShell
+  // 单引号字符串有特殊含义，按 '' 转义一次。
+  const rootLower = ROOT.toLowerCase().split("'").join("''")
+  const ps = [
+    `Get-CimInstance Win32_Process -Filter "Name='electron.exe'"`,
+    `Where-Object { $_.CommandLine -and $_.CommandLine.ToLower().Contains('${rootLower}') }`,
+    `ForEach-Object { & taskkill.exe /PID $_.ProcessId /T /F }`,
+  ].join(' | ')
+  spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { stdio: 'ignore' })
 }
 
 function killTree(pid) {

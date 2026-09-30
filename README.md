@@ -14,6 +14,18 @@
 
 完整设计见 [**docs/技术方案.md**](docs/技术方案.md)。
 
+## 界面
+
+左边是可嵌套的分组树，右边每条命令一张卡片：点「启动」就在这条命令所属的目录里跑，输出实时落到下面的日志面板，卡片上直接显示监听端口与当前日志行数。
+
+![跑起来的样子：卡片转为运行中、显示端口与日志行数，下方是实时输出](docs/screenshot-running.png)
+
+设置里的「命令可见性」按项目分段 —— 可以逐个顶层项目、逐条命令勾选要显示的子集；隐藏只影响显示，配置本身照常保留：
+
+![设置面板：主题、日志行数、字号、批量启动间隔，以及按项目分段的命令可见性](docs/screenshot-settings.png)
+
+> 头图与上面两张图里的项目、命令全部来自仓库自带的夹具（`spike/fixture`、`spike/fixture-web`）。后两张可以用 `node spike/readme-shots.mjs` 重新生成：它跑在 `spike/.readme-profile/` 里，**不碰你真实的 config.json**，结束时也只杀自己起的进程树。
+
 ## 环境要求
 
 | 项目 | 要求 |
@@ -56,7 +68,7 @@ node spike/ui-probe.mjs <目录>…  # 换成自己的项目目录（至少两�
 
 不传目录时用的是仓库自带的两个夹具，并且**必须**有两个同级目录 —— 「移动到…」这类断言要有跨分组的目标才测得出来，只有一个分组时探针会直接报错退出。
 
-整轮跑在一次性的 `spike/.probe-profile/` 里（通过 `TM_USER_DATA` 换掉 userData），**不会碰你真实的 config.json**。截图同理：`spike/shot.ps1` 也支持 `TM_USER_DATA`，上面的 README 截图就是这么抓的。
+整轮跑在一次性的 `spike/.probe-profile/` 里（通过 `TM_USER_DATA` 换掉 userData），**不会碰你真实的 config.json**。截图同理：`spike/shot.ps1` 与 `spike/readme-shots.mjs` 都支持 `TM_USER_DATA`，README 的头图出自前者、功能图出自后者。两者收尾时都只按 PID 杀自己起的进程树 —— 探针早期版本按映像名 `taskkill /IM electron.exe`，会连你正在用的实例一起干掉，已经改掉了。
 
 ## 环境变量
 

@@ -16,6 +16,9 @@ spike/.probe-profile/
 # 截图用的一次性 userData 目录（spike/shot.ps1 配 TM_USER_DATA 使用）
 spike/.shot-profile/
 
+# README 配图脚本的一次性 userData 目录（spike/readme-shots.mjs 每次运行都会重建）
+spike/.readme-profile/
+
 # 界面探针写的截图与完整日志（TM_SHOT_DIR 指到哪就写哪，这里盯住默认那个）
 spike/.probe-shots/
 
