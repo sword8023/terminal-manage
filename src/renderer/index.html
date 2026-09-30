@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Terminal Manage</title>
+    <!--
+      CSP 说明：
+      script-src 允许 'unsafe-inline' 是**必要的** —— Vite 在 dev 模式下会为每个
+      .vue 文件注入内联的 HMR 模块脚本，限制成 'self' 会直接让热更新失效。
+      这里仍然保留 object-src / base-uri / frame-src 三条硬限制。
+      日志内容的 HTML 转义由 ansi_up 的 escape_html 在渲染层负责，不依赖 CSP。
+
+      注意：这里**不能**写 frame-ancestors。该指令只对 HTTP 响应头生效，写在
+      <meta> 里会被浏览器静默忽略，并每次启动在控制台留一条
+      "The Content Security Policy directive 'frame-ancestors' is ignored when
+      delivered via a <meta> element."。想约束子的反而是 frame-src，
+      它在 meta 里是有效的，所以用 frame-src 'none' 禁止本页面嵌入任何子框架。
+      至于「本页面自己不被别人嵌入」，本项目是 Electron 桌面应用，窗口由主进程
+      独占，不存在被第三方站点 iframe 的场景，无需该指令。
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws://localhost:* http://localhost:*; object-src 'none'; base-uri 'none'; frame-src 'none'"
+    />
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,32 @@
+# 依赖与构建产物
+node_modules/
+out/
+dist/
+dist-electron/
+
+# esbuild 打包出来的集成测试产物（源文件是 spike/integration.ts）
+spike/integration.mjs
+
+# 运行时留下的文件
+spike/fixture/.grandchild.pid
+
+# 界面探针的一次性 userData 目录（spike/ui-probe.mjs 每次运行都会重建）
+spike/.probe-profile/
+
+# 截图用的一次性 userData 目录（spike/shot.ps1 配 TM_USER_DATA 使用）
+spike/.shot-profile/
+
+# 界面探针写的截图与完整日志（TM_SHOT_DIR 指到哪就写哪，这里盯住默认那个）
+spike/.probe-shots/
+
+# 诊断报告
+.dsh-acl-report/
+
+# 编辑器 / 系统
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.log
+*.err
+.DS_Store
+Thumbs.db

@@ -1,0 +1,12 @@
+{
+  "name": "spike-fixture-web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "界面探针的第二个夹具项目：凑出两个同级分组，并给 seed.ts 提供多几条可读的 scripts",
+  "scripts": {
+    "dev": "node dev.mjs",
+    "build": "node -e \"console.log('✓ built in 1.20s')\"",
+    "lint": "node -e \"console.log('lint ok')\"",
+    "preview": "node dev.mjs"
+  }
+}

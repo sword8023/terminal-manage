@@ -1,0 +1,934 @@
+/* ---------------------------------------------------------------------------
+   主题变量
+
+   深色是默认值，浅色是一整块覆盖值。
+
+   关键设计：**渲染层没有一行主题代码**。用户选的 `dark | light | system`
+   由主进程用 `nativeTheme.themeSource` 翻译成 Chromium 的配色偏好，
+   于是 `prefers-color-scheme` 就会跟着变 —— 这里用媒体查询接住即可：
+   改设置 → 主进程改 themeSource → 媒体查询重新求值 → CSS 立刻换色。
+
+   好处有三个：不需要往元素上挂 `data-theme`、不需要在 Vue 里同步状态、
+   也天然没有「首帧还不知道主题所以先闪一下」的问题（主进程在窗口创建
+   之前就把偏好设好了，而窗口底色也按解析结果给）。
+   --------------------------------------------------------------------------- */
+:root {
+  /* 底色层次 */
+  --bg: #101014;
+  --bg-elev: #17171d;
+  --bg-panel: #131318;
+  --bg-input: #1c1c23;
+  --bg-hover: #24242d;
+  --bg-hover-soft: #1c1c23;
+  --bg-active: #1e2634;
+
+  --border: #27272f;
+  --border-strong: #383843;
+  --border-hover: #4a4a58;
+  --border-active: #2c4160;
+
+  /* 文字层次 */
+  --text: #d7d7de;
+  --text-dim: #8a8a99;
+  --text-faint: #5f5f6c;
+
+  /* 语义色 */
+  --accent: #4b8ad8;
+  --accent-hover: #5c99e6;
+  --danger: #e05561;
+  --warn: #d9a441;
+  --ok: #5cb85c;
+
+  /* 日志里的链接。深色底上要用比 accent 更亮的一档，否则贴着一堆彩色
+     ANSI 输出根本认不出哪个是可点的 */
+  --link: #6ea8ff;
+  --link-hover: #9cc4ff;
+
+  /* 语义色的浅底：横幅、提示条、选中行 */
+  --accent-soft: rgba(75, 138, 216, 0.16);
+  --accent-softer: rgba(75, 138, 216, 0.1);
+  --ok-soft: rgba(92, 184, 92, 0.08);
+  --warn-soft: rgba(217, 164, 65, 0.12);
+  --danger-soft: rgba(224, 85, 97, 0.14);
+
+  /* 状态胶囊 */
+  --pill-bg: #22222b;
+  --pill-ok-bg: #16241a;
+  --pill-ok-border: #2d5232;
+  --pill-warn-bg: #241f14;
+  --pill-warn-border: #54411c;
+  --pill-danger-bg: #241618;
+  --pill-danger-border: #5a2a2f;
+  --pill-accent-bg: #16202c;
+  --pill-accent-border: #26405e;
+  --pill-accent-hover: #1b2a3a;
+
+  --dot-idle: #55555f;
+  --dot-glow: rgba(92, 184, 92, 0.7);
+
+  /* 卡片状态底色。运行中只把那个 8px 的状态点变绿太不显眼 —— 用户扫一眼卡片
+     网格就是想看出「哪个在跑」，所以整张卡片染色，配一道左侧色条。 */
+  --card-running-bg: rgba(92, 184, 92, 0.1);
+  --card-running-border: rgba(92, 184, 92, 0.42);
+  --card-busy-bg: rgba(217, 164, 65, 0.1);
+  --card-busy-border: rgba(217, 164, 65, 0.42);
+  --card-error-bg: rgba(224, 85, 97, 0.1);
+  --card-error-border: rgba(224, 85, 97, 0.42);
+
+  --log-bg: #0c0c10;
+
+  --overlay: rgba(0, 0, 0, 0.55);
+  --shadow-modal: 0 18px 48px rgba(0, 0, 0, 0.6);
+  --shadow-menu: 0 12px 32px rgba(0, 0, 0, 0.55);
+
+  /* ANSI 调色板（ansi_up 的 use_classes 模式）。
+     深色下要重映射，否则 ANSI 的纯黑会变成隐形文字；浅色下反过来，
+     经典色值为白底设计，黄/青这类在深色上还得提亮才看得清。 */
+  --ansi-black-fg: #4c4c58;
+  --ansi-red-fg: #f07178;
+  --ansi-green-fg: #a6e3a1;
+  --ansi-yellow-fg: #f2cc60;
+  --ansi-blue-fg: #82aaff;
+  --ansi-magenta-fg: #c792ea;
+  --ansi-cyan-fg: #7fd6e8;
+  --ansi-white-fg: #d7d7de;
+
+  --ansi-bright-black-fg: #6b6b7a;
+  --ansi-bright-red-fg: #ff8b92;
+  --ansi-bright-green-fg: #c2f0bd;
+  --ansi-bright-yellow-fg: #ffe08a;
+  --ansi-bright-blue-fg: #a4c0ff;
+  --ansi-bright-magenta-fg: #e0b3ff;
+  --ansi-bright-cyan-fg: #a6e8f5;
+  --ansi-bright-white-fg: #ffffff;
+
+  --ansi-black-bg: #2a2a33;
+  --ansi-red-bg: #6b2b30;
+  --ansi-green-bg: #2b4a2e;
+  --ansi-yellow-bg: #5a4a1e;
+  --ansi-blue-bg: #25395c;
+  --ansi-magenta-bg: #4a2f5c;
+  --ansi-cyan-bg: #234a52;
+  --ansi-white-bg: #d7d7de;
+
+  --ansi-bright-black-bg: #3a3a46;
+  --ansi-bright-red-bg: #8a383e;
+  --ansi-bright-green-bg: #3a5f3d;
+  --ansi-bright-yellow-bg: #75601f;
+  --ansi-bright-blue-bg: #33496f;
+  --ansi-bright-magenta-bg: #5e3d73;
+  --ansi-bright-cyan-bg: #2d5c66;
+  --ansi-bright-white-bg: #ffffff;
+
+  --mono: 'Cascadia Mono', 'Consolas', 'JetBrains Mono', 'Microsoft YaHei Mono', monospace;
+  --sans: 'Segoe UI', 'Microsoft YaHei UI', system-ui, sans-serif;
+
+  --radius: 6px;
+  color-scheme: dark;
+}
+
+/* 浅色。
+   `color-scheme: light` 不能省 —— 它决定滚动条、下拉框、复选框这些
+   **原生控件**的渲染，只改自己的变量会得到一套「浅色界面 + 深色滚动条」。 */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f4f5f7;
+    --bg-elev: #ffffff;
+    --bg-panel: #f8f9fb;
+    --bg-input: #ffffff;
+    --bg-hover: #e9ecf1;
+    --bg-hover-soft: #eaedf2;
+    --bg-active: #e2ecfa;
+
+    --border: #dfe2e8;
+    --border-strong: #c6ccd6;
+    --border-hover: #9aa3b2;
+    --border-active: #9dc0e8;
+
+    --text: #24262c;
+    --text-dim: #5a606c;
+    --text-faint: #8b919d;
+
+    --accent: #2f6fd0;
+    --accent-hover: #2a62ba;
+    --danger: #c0364a;
+    --warn: #8a6400;
+    --ok: #2f7d32;
+
+    --link: #1d5fbf;
+    --link-hover: #14498f;
+
+    --accent-soft: rgba(47, 111, 208, 0.14);
+    --accent-softer: rgba(47, 111, 208, 0.08);
+    --ok-soft: rgba(47, 125, 50, 0.1);
+    --warn-soft: rgba(154, 107, 0, 0.12);
+    --danger-soft: rgba(192, 54, 74, 0.12);
+
+    --pill-bg: #eceef2;
+    --pill-ok-bg: #e6f4e7;
+    --pill-ok-border: #b6ddb9;
+    --pill-warn-bg: #fdf3dc;
+    --pill-warn-border: #e4cd8c;
+    --pill-danger-bg: #fbe9ec;
+    --pill-danger-border: #efc0c8;
+    --pill-accent-bg: #e8f1fd;
+    --pill-accent-border: #b8d4f2;
+    --pill-accent-hover: #dbe9fb;
+
+    --dot-idle: #b3b8c2;
+    --dot-glow: rgba(47, 125, 50, 0.45);
+
+    --card-running-bg: rgba(47, 125, 50, 0.07);
+    --card-running-border: rgba(47, 125, 50, 0.38);
+    --card-busy-bg: rgba(138, 100, 0, 0.07);
+    --card-busy-border: rgba(138, 100, 0, 0.38);
+    --card-error-bg: rgba(192, 54, 74, 0.06);
+    --card-error-border: rgba(192, 54, 74, 0.38);
+
+    --log-bg: #ffffff;
+
+    --overlay: rgba(20, 24, 32, 0.32);
+    --shadow-modal: 0 18px 48px rgba(20, 24, 32, 0.18);
+    --shadow-menu: 0 12px 32px rgba(20, 24, 32, 0.2);
+
+    --ansi-black-fg: #3b3f4a;
+    --ansi-red-fg: #c72e3c;
+    --ansi-green-fg: #1f7a33;
+    --ansi-yellow-fg: #8a6400;
+    --ansi-blue-fg: #2f6fd0;
+    --ansi-magenta-fg: #9b3fa8;
+    --ansi-cyan-fg: #0e7490;
+    --ansi-white-fg: #5a606c;
+
+    --ansi-bright-black-fg: #6b7280;
+    --ansi-bright-red-fg: #e0505f;
+    --ansi-bright-green-fg: #2e9e4a;
+    --ansi-bright-yellow-fg: #b8860b;
+    --ansi-bright-blue-fg: #4a90e2;
+    --ansi-bright-magenta-fg: #b45fd0;
+    --ansi-bright-cyan-fg: #1a9bb5;
+    --ansi-bright-white-fg: #24262c;
+
+    --ansi-black-bg: #d8dae0;
+    --ansi-red-bg: #f8d7db;
+    --ansi-green-bg: #d9f0dc;
+    --ansi-yellow-bg: #f7ecd0;
+    --ansi-blue-bg: #dbe8fb;
+    --ansi-magenta-bg: #f0ddf7;
+    --ansi-cyan-bg: #d5eef4;
+    --ansi-white-bg: #ffffff;
+
+    --ansi-bright-black-bg: #bfc3cc;
+    --ansi-bright-red-bg: #f3bfc6;
+    --ansi-bright-green-bg: #c3e6c8;
+    --ansi-bright-yellow-bg: #f0dfae;
+    --ansi-bright-blue-bg: #c3d9f7;
+    --ansi-bright-magenta-bg: #e6c7f2;
+    --ansi-bright-cyan-bg: #b9e2ec;
+    --ansi-bright-white-bg: #f0f1f4;
+
+    color-scheme: light;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  overflow: hidden;
+  /* 桌面应用里选中文字通常是误操作，只在日志区放开 */
+  user-select: none;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+/* ---------------------------------------------------------------------------
+   骨架
+   --------------------------------------------------------------------------- */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.titlebar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 46px;
+  padding: 0 12px;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.titlebar .brand {
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--text);
+}
+
+.titlebar .brand span {
+  color: var(--text-faint);
+  font-weight: 400;
+  margin-left: 6px;
+}
+
+.titlebar .spacer {
+  flex: 1;
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   通用控件
+   --------------------------------------------------------------------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 27px;
+  padding: 0 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--text);
+  white-space: nowrap;
+  transition:
+    background 0.12s,
+    border-color 0.12s;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.btn.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.btn.danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.btn.ghost {
+  background: transparent;
+  border-color: transparent;
+}
+
+.btn.ghost:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: transparent;
+}
+
+.btn.icon {
+  padding: 0 7px;
+}
+
+/* ---------------------------------------------------------------------------
+   侧栏
+   --------------------------------------------------------------------------- */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 268px;
+  flex: none;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+}
+
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px 8px;
+  font-size: 11px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.sidebar-head .count {
+  margin-left: auto;
+  letter-spacing: 0;
+}
+
+.sidebar-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 8px 8px;
+}
+
+.group-label {
+  padding: 10px 6px 4px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.proj {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.proj:hover {
+  background: var(--bg-hover-soft);
+}
+
+.proj.active {
+  background: var(--bg-active);
+  border-color: var(--border-active);
+}
+
+.proj .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--text-faint);
+}
+
+.proj .dot.running {
+  background: var(--ok);
+  box-shadow: 0 0 6px var(--dot-glow);
+}
+
+.proj .dot.starting {
+  background: var(--warn);
+}
+
+.proj .dot.error {
+  background: var(--danger);
+}
+
+.proj .dot.stopping {
+  background: var(--warn);
+  opacity: 0.6;
+}
+
+.proj .dot.exited {
+  background: var(--dot-idle);
+}
+
+.proj-meta {
+  min-width: 0;
+  flex: 1;
+}
+
+.proj-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.proj-sub {
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.proj .quick {
+  opacity: 0;
+  flex: none;
+}
+
+.proj:hover .quick,
+.proj.active .quick {
+  opacity: 1;
+}
+
+.sidebar-foot {
+  padding: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.sidebar-foot .btn {
+  width: 100%;
+  justify-content: center;
+}
+
+.empty-hint {
+  padding: 24px 12px;
+  text-align: center;
+  color: var(--text-faint);
+  line-height: 1.7;
+}
+
+/* ---------------------------------------------------------------------------
+   日志区
+   --------------------------------------------------------------------------- */
+.main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 42px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elev);
+  flex: none;
+}
+
+.panel-head .name {
+  font-weight: 600;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  background: var(--pill-bg);
+  color: var(--text-dim);
+  border: 1px solid var(--border-strong);
+}
+
+.pill.running {
+  color: var(--ok);
+  border-color: var(--pill-ok-border);
+  background: var(--pill-ok-bg);
+}
+
+.pill.starting,
+.pill.stopping {
+  color: var(--warn);
+  border-color: var(--pill-warn-border);
+  background: var(--pill-warn-bg);
+}
+
+.pill.error {
+  color: var(--danger);
+  border-color: var(--pill-danger-border);
+  background: var(--pill-danger-bg);
+}
+
+.pill.port {
+  cursor: pointer;
+  color: var(--accent);
+  border-color: var(--pill-accent-border);
+  background: var(--pill-accent-bg);
+  font-family: var(--mono);
+}
+
+.pill.port:hover {
+  background: var(--pill-accent-hover);
+}
+
+/*
+ * 「链接」下拉按钮 —— 这是个真 <button>（要能聚焦、能用键盘触发），
+ * 所以得把浏览器给 button 的默认字体清掉，其余外观走 .pill。
+ */
+.pill.links {
+  border-color: var(--pill-accent-border);
+  background: var(--pill-accent-bg);
+  color: var(--link);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.pill.links:hover {
+  background: var(--pill-accent-hover);
+  color: var(--link-hover);
+}
+
+.panel-head .spacer {
+  flex: 1;
+}
+
+.log-viewport {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--log-bg);
+  padding: 8px 0;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  user-select: text;
+  cursor: text;
+}
+
+.log-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 0 12px;
+  min-height: 1.5em;
+}
+
+.log-placeholder {
+  padding: 40px 12px;
+  text-align: center;
+  color: var(--text-faint);
+  font-family: var(--sans);
+  user-select: none;
+}
+
+/* ---------------------------------------------------------------------------
+   ANSI 调色板（ansi_up use_classes 模式）
+   具体色值按主题定义在上面的变量块里。
+   --------------------------------------------------------------------------- */
+.ansi-black-fg { color: var(--ansi-black-fg); }
+.ansi-red-fg { color: var(--ansi-red-fg); }
+.ansi-green-fg { color: var(--ansi-green-fg); }
+.ansi-yellow-fg { color: var(--ansi-yellow-fg); }
+.ansi-blue-fg { color: var(--ansi-blue-fg); }
+.ansi-magenta-fg { color: var(--ansi-magenta-fg); }
+.ansi-cyan-fg { color: var(--ansi-cyan-fg); }
+.ansi-white-fg { color: var(--ansi-white-fg); }
+
+.ansi-bright-black-fg { color: var(--ansi-bright-black-fg); }
+.ansi-bright-red-fg { color: var(--ansi-bright-red-fg); }
+.ansi-bright-green-fg { color: var(--ansi-bright-green-fg); }
+.ansi-bright-yellow-fg { color: var(--ansi-bright-yellow-fg); }
+.ansi-bright-blue-fg { color: var(--ansi-bright-blue-fg); }
+.ansi-bright-magenta-fg { color: var(--ansi-bright-magenta-fg); }
+.ansi-bright-cyan-fg { color: var(--ansi-bright-cyan-fg); }
+.ansi-bright-white-fg { color: var(--ansi-bright-white-fg); }
+
+.ansi-black-bg { background: var(--ansi-black-bg); }
+.ansi-red-bg { background: var(--ansi-red-bg); }
+.ansi-green-bg { background: var(--ansi-green-bg); }
+.ansi-yellow-bg { background: var(--ansi-yellow-bg); }
+.ansi-blue-bg { background: var(--ansi-blue-bg); }
+.ansi-magenta-bg { background: var(--ansi-magenta-bg); }
+.ansi-cyan-bg { background: var(--ansi-cyan-bg); }
+/* 白底两种主题下都是浅色，所以文字色固定用近黑，不参与主题切换 */
+.ansi-white-bg { background: var(--ansi-white-bg); color: #101014; }
+
+.ansi-bright-black-bg { background: var(--ansi-bright-black-bg); }
+.ansi-bright-red-bg { background: var(--ansi-bright-red-bg); }
+.ansi-bright-green-bg { background: var(--ansi-bright-green-bg); }
+.ansi-bright-yellow-bg { background: var(--ansi-bright-yellow-bg); }
+.ansi-bright-blue-bg { background: var(--ansi-bright-blue-bg); }
+.ansi-bright-magenta-bg { background: var(--ansi-bright-magenta-bg); }
+.ansi-bright-cyan-bg { background: var(--ansi-bright-cyan-bg); }
+.ansi-bright-white-bg { background: var(--ansi-bright-white-bg); color: #101014; }
+
+/* ---------------------------------------------------------------------------
+   横幅提示
+   --------------------------------------------------------------------------- */
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  font-size: 12px;
+  flex: none;
+  border-bottom: 1px solid var(--border);
+}
+
+/* 崩溃与操作失败同属「出事了」，用同一红色系，区别只在于 crash 还带操作按钮。
+   （原先这里写的是 `.banner.err`，而 App.vue 里的类名是 `banner error`，
+   对不上，导致错误横幅一直没有配色。以模板为准。） */
+.banner.crash,
+.banner.error {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+/* 「成功了但有话要说」，例如导入目录时跳过了几个缺 package.json 的子包。
+   刻意用琥珀色而不是红色：那些情况操作其实已经生效（分组和命令都建好了），
+   用错误样式呈现会让用户以为失败，然后再点一次 —— 结果是建出两套。 */
+.banner.notice {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.banner .spacer {
+  flex: 1;
+}
+
+/* ---------------------------------------------------------------------------
+   模态
+   --------------------------------------------------------------------------- */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.modal {
+  width: 520px;
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: var(--shadow-modal);
+}
+
+.modal-head {
+  padding: 14px 16px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-body {
+  padding: 14px 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal-foot {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.modal-foot .spacer {
+  flex: 1;
+}
+
+/*
+ * 命令可见性列表。
+ *
+ * 放在全局而不是各自的 scoped 里：设置弹窗与「编辑命令可见性」弹窗渲染的是
+ * 同一种列表，各写一份必然在改其中一处时漏掉另一处，而表现只是「两个地方长得
+ * 不一样」—— 没有报错，只能靠眼睛发现。
+ */
+.vis-list {
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+}
+
+.vis-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  cursor: pointer;
+}
+.vis-row:last-child {
+  border-bottom: none;
+}
+.vis-row:hover {
+  background: var(--bg-elev);
+}
+
+.vis-name {
+  overflow: hidden;
+  min-width: 0;
+  flex: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vis-name.off {
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+
+.vis-group {
+  overflow: hidden;
+  max-width: 45%;
+  flex: none;
+  color: var(--text-faint);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.field > label {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.field .hint {
+  font-size: 11px;
+  color: var(--text-faint);
+  line-height: 1.5;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.row > * {
+  min-width: 0;
+}
+
+input[type='text'],
+input[type='number'],
+select,
+textarea {
+  width: 100%;
+  height: 30px;
+  padding: 0 9px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--text);
+  outline: none;
+}
+
+textarea {
+  height: auto;
+  padding: 7px 9px;
+  resize: vertical;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--accent);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-faint);
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.check input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+}
+
+.swatches {
+  display: flex;
+  gap: 6px;
+}
+
+.swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  border: 2px solid transparent;
+  cursor: pointer;
+}
+
+/* 选中环要用前景色而不是写死的白 —— 浅色主题下白边在浅色块上是看不见的 */
+.swatch.on {
+  border-color: var(--text);
+}
+
+.kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.kv .k {
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.kv .v {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+
+/*
+ * 这两个是全局兜底。
+ *
+ * 各个组件的样式都是 scoped 的，而 `<div class="spacer" />` 和裸 `<div
+ * class="hint">` 被用在多个组件的局部布局里 —— 与其在每个组件里重复定义一遍，
+ * 不如在这里给一份全局的。scoped 只影响组件自己写的规则，全局类照常生效。
+ */
+.spacer {
+  min-width: 0;
+  flex: 1;
+}
+
+.hint {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.7;
+}

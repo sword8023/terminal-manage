@@ -1,0 +1,33 @@
+{
+  "name": "terminal-manage",
+  "version": "0.1.0",
+  "private": true,
+  "description": "面向 Vue 多项目开发的 Windows 桌面终端管理工具",
+  "author": "ljcq0",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
+    "typecheck:web": "vue-tsc --noEmit -p tsconfig.json",
+    "test:unit": "node --test src/**/*.test.ts",
+    "test:integration": "esbuild spike/integration.ts --bundle --platform=node --format=esm --outfile=spike/integration.mjs && node spike/integration.mjs",
+    "test:ui": "node spike/ui-probe.mjs",
+    "test": "npm run typecheck && npm run test:unit && npm run test:integration",
+    "dist": "electron-vite build && electron-builder --win"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "@vitejs/plugin-vue": "^6.0.9",
+    "ansi_up": "^6.0.6",
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.6",
+    "vue": "^3.5.43",
+    "vue-tsc": "^3.3.11"
+  }
+}

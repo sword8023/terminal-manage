@@ -1,0 +1,9 @@
+{
+  "name": "spike-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "description": "M0 可行性验证夹具：模拟一个 Vite 风格的 dev server",
+  "scripts": {
+    "dev": "node server.mjs"
+  }
+}

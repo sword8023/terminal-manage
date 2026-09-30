@@ -1,0 +1,52 @@
+# electron-builder 配置。
+#
+# 刻意保持最小：这个工具的定位是「自己 + 团队几个人用」（见 docs/技术方案.md
+# 开头的范围界定），所以不做签名、不做自动更新、不做多平台。
+#
+# 用法：npm run dist  → electron-vite build && electron-builder --win
+# 产物：dist\Terminal-Manage-<版本>-setup.exe（NSIS 安装包）
+#       dist\win-unpacked\  （免安装的裸目录，调试时直接跑这里的 exe 更快）
+
+appId: com.terminalmanage.app
+productName: Terminal Manage
+copyright: Copyright © 2026 ljcq0
+
+directories:
+  output: dist
+  # 图标等「打包素材」放这里。buildResources 目录不会被打进应用。
+  buildResources: build
+
+# 只放构建产物 + package.json。
+#
+# 这里**不需要 node_modules**：package.json 里一个 dependencies 都没有
+# （全部是 devDependencies），而 electron-vite 的 externalizeDepsPlugin 只
+# 外部化 dependencies —— 也就是说主进程和 preload 已经被打成自包含的单文件
+# （out/main/index.js ≈ 60 kB），运行时不需要任何第三方模块。
+# package.json 本身必须留在包里：Electron 靠它的 main 字段找入口。
+files:
+  - out/**/*
+  - package.json
+
+win:
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+  # 产物名里带版本号，避免和旧包混淆。产品名有空格，文件名里换成连字符。
+  artifactName: Terminal-Manage-${version}-setup.${ext}
+
+nsis:
+  # 走向导而不是一键安装：至少让用户能看一眼装到哪、能自己改。
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  # 装到当前用户目录（%LOCALAPPDATA%\Programs），不弹 UAC。
+  # 这个工具本来就是用户级的：配置写在 %APPDATA%、进程都在自己会话里。
+  perMachine: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Terminal Manage
+  # 显式写上（默认也是 false）：卸载时**不要**碰 %APPDATA%\terminal-manage。
+  # 那里是用户攒出来的命令树和设置，卸载重装不该让人重新配一遍。
+  deleteAppDataOnUninstall: false
+  runAfterFinish: true
