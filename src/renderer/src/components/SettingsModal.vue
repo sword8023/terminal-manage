@@ -2,9 +2,15 @@
 import { computed, reactive, ref } from 'vue'
 import { collectCommands } from '@shared/tree'
 import type { CommandNode, ThemeMode } from '@shared/types'
-import { groupChainOf, openExternal, state, updateNode, updateSettings } from '../store/app'
+import {
+  groupChainOf,
+  openExternal,
+  state,
+  updateNode,
+  updateSettings,
+} from '../store/app'
 
-const emit = defineEmits<{ close: [] }>()
+const emit = defineEmits<{ close: []; update: [] }>()
 
 /**
  * 主题只有三个值，全部摊开比藏进下拉框好 —— 一眼就能看出当前选的是哪个。
@@ -28,6 +34,8 @@ const form = reactive({
   autoLaunch: state.settings?.autoLaunch ?? false,
   forceColor: state.settings?.forceColor ?? true,
   showHiddenCommands: state.settings?.showHiddenCommands ?? false,
+  autoCheckUpdate: state.settings?.autoCheckUpdate ?? true,
+  updateFeedUrl: state.settings?.updateFeedUrl ?? '',
 })
 
 const saving = ref(false)
@@ -44,6 +52,8 @@ async function save(): Promise<void> {
       autoLaunch: form.autoLaunch,
       forceColor: form.forceColor,
       showHiddenCommands: form.showHiddenCommands,
+      autoCheckUpdate: form.autoCheckUpdate,
+      updateFeedUrl: form.updateFeedUrl.trim(),
     })
     emit('close')
   } finally {
@@ -54,6 +64,33 @@ async function save(): Promise<void> {
 function openConfigDir(): void {
   const dir = state.env?.userData
   if (dir) void openExternal(dir, 'path')
+}
+
+// ---------------------------------------------------------------------------
+// 更新
+// ---------------------------------------------------------------------------
+//
+// 升级的界面（进度、失败原因、安装确认）全在「升级」弹窗里，这里只留「去哪找更新」
+// 和「现在查一次」两件事。拆开是有意的：设置弹窗是「改配置 → 按保存」的地方，升级是
+// 「看一眼状态 → 按一个按钮」的地方。混在一起时，用户按下保存会以为顺便检查了更新，
+// 而实际上可能什么都没发生。
+
+/**
+ * 「检查更新」按钮：先把与升级有关的两项设置落盘，再打开升级弹窗。
+ *
+ * 先落盘是因为源地址输入框就摆在这个按钮旁边：用户敲好地址直接点检查，期望的显然是
+ * 「用我刚填的地址查一次」。非要按「保存」才生效的话，这个按钮打的还是老地址，而且
+ * 从界面上完全看不出区别 —— 正是本仓库其它地方反复在避免的那类静默故障。
+ *
+ * 检查动作本身由 UpdateModal 发起（那里的 onMounted 看到 idle 就会查一次），
+ * 这里只负责打开它，避免两边各查一次、同一时刻跑两个请求。
+ */
+async function checkNow(): Promise<void> {
+  await updateSettings({
+    autoCheckUpdate: form.autoCheckUpdate,
+    updateFeedUrl: form.updateFeedUrl.trim(),
+  })
+  emit('update')
 }
 
 // ---------------------------------------------------------------------------
@@ -222,8 +259,28 @@ function onVisChange(command: CommandNode, event: Event): void {
         </div>
 
         <div class="field">
+          <label>更新</label>
+          <label class="check">
+            <input v-model="form.autoCheckUpdate" type="checkbox" />
+            <span>启动后自动检查新版本</span>
+          </label>
+          <input
+            v-model="form.updateFeedUrl"
+            type="text"
+            spellcheck="false"
+            placeholder="更新源地址，例如 https://example.com/tm/latest.json"
+          />
+          <div class="hint">
+            地址留空 = 不检查更新。自动检查是静默的：源不可达、断网、公司网拦掉都不会
+            打扰你，只写进 debug.log（需要 <code>TM_DEBUG=1</code> 启动）。
+            这两项在按下面的「检查更新」时也会一并保存。
+          </div>
+        </div>
+
+        <div class="field">
           <label>运行环境</label>
           <div class="kv">
+            <span class="k">版本</span><span class="v">{{ state.env?.version ?? '-' }}</span>
             <span class="k">Electron</span><span class="v">{{ state.env?.electron ?? '-' }}</span>
             <span class="k">Node</span><span class="v">{{ state.env?.node ?? '-' }}</span>
             <span class="k">平台</span><span class="v">{{ state.env?.platform ?? '-' }}</span>
@@ -231,6 +288,11 @@ function onVisChange(command: CommandNode, event: Event): void {
           </div>
           <div class="row" style="margin-top: 6px">
             <button class="btn" @click="openConfigDir">打开配置目录</button>
+            <button class="btn" @click="checkNow">检查更新…</button>
+          </div>
+          <div class="hint">
+            按钮会打开升级窗口：新版本说明、下载进度、安装确认都在那里。上面的源地址
+            会先随这次点击落盘，所以改完可以直接点它。
           </div>
         </div>
       </div>
@@ -245,6 +307,8 @@ function onVisChange(command: CommandNode, event: Event): void {
 </template>
 
 <style scoped>
+/* 下载进度条跟着升级弹窗走了（UpdateModal.vue）：那里才是发起下载的地方。 */
+
 .seg {
   display: inline-flex;
   border: 1px solid var(--border);

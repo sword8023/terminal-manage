@@ -17,6 +17,7 @@ import type {
   RescanResult,
   RuntimeState,
   TreeNode,
+  UpdateState,
 } from '@shared/types'
 import { lastUrl, toHtml } from '../utils/ansi'
 import { isUp } from '../utils/status'
@@ -59,6 +60,14 @@ interface State {
   logs: Record<string, RenderLine[]>
   settings: AppSettings | null
   env: EnvInfo | null
+  /**
+   * 升级状态。**只读展示**，唯一的数据源是主进程的 Updater。
+   *
+   * 界面侧不存第二份、也不做「点了按钮就先显示正在检查」的乐观更新：一旦两边
+   * 各自维护，就会出现「界面在转圈、主进程其实早就报错了」这种漂移，而升级
+   * 恰恰是一个「错了也没人看得见」的功能。
+   */
+  update: UpdateState | null
   /** 右侧内容区当前查看的分组；null = 根级（看全树） */
   selectedGroupId: string | null
   /** 当前聚焦的命令 —— 日志面板跟着它走 */
@@ -88,6 +97,7 @@ export const state = reactive<State>({
   logs: {},
   settings: null,
   env: null,
+  update: null,
   selectedGroupId: null,
   focusedId: null,
   busy: {},
@@ -360,6 +370,20 @@ export const markedCommands = computed<CommandNode[]>(() =>
 
 export const markedCount = computed<number>(() => markedCommands.value.length)
 
+/**
+ * 正在运行的命令条数。
+ *
+ * 升级确认框要如实回答「这次升级会停掉几条」—— 「启动中」「停止中」也算在内：
+ * 它们同样会被 dispose 一起收掉，只数 running 会少报，而少报正是让人点下确认
+ * 之后才发现意料之外后果的那种错。
+ */
+export const runningCount = computed<number>(
+  () =>
+    Object.values(state.runtime).filter(
+      (item) => item.status === 'running' || item.status === 'starting' || item.status === 'stopping',
+    ).length,
+)
+
 export const focusedCommand = computed<CommandNode | null>(() => commandOf(state.focusedId))
 
 export const activeRuntime = computed<RuntimeState | null>(() =>
@@ -418,19 +442,24 @@ export async function init(): Promise<void> {
     window.api.on(CH.EVT_SETTINGS_CHANGED, (settings) => {
       state.settings = settings
     }),
+    window.api.on(CH.EVT_UPDATE_STATUS, (update) => {
+      state.update = update
+    }),
   ]
 
   try {
-    const [nodes, settings, env, snapshot] = await Promise.all([
+    const [nodes, settings, env, snapshot, update] = await Promise.all([
       window.api.tree.list(),
       window.api.settings.get(),
       window.api.env.info(),
       window.api.processes.snapshot(),
+      window.api.update.snapshot(),
     ])
 
     state.settings = settings
     state.env = env
     state.nodes = nodes
+    state.update = update
     for (const rt of snapshot) state.runtime[rt.nodeId] = rt
 
     // 重放主进程侧保留的日志尾巴：界面刷新后不该是空的
@@ -735,6 +764,82 @@ export async function rescanGroup(groupId: string): Promise<RescanResult | null>
 
 export async function updateSettings(patch: Partial<AppSettings>): Promise<void> {
   await guardAll(() => window.api.settings.update(patch))
+}
+
+/**
+ * 手动检查更新。
+ *
+ * **刻意不走 guardAll**：那只会在检查的几秒里把批量启动/停止按钮一起置灰。
+ * 检查更新是个纯后台动作，用户点它的同时完全应该能继续启动自己的命令。
+ *
+ * 失败不必在这里判：主进程的 check 不抛异常，失败会作为 `phase: 'error'` 的
+ * 状态回来（连错误文案都是它给的），同时还有一条 EVT_UPDATE_STATUS 广播。
+ * 两条路径写的是同一份最终状态，不存在谁盖掉谁。
+ */
+export async function checkUpdate(): Promise<void> {
+  try {
+    state.update = await window.api.update.check()
+  } catch (err) {
+    // 走到这里说明是 IPC 本身出了问题（通道没注册、preload 拆包失败），
+    // 那就和别的操作一样落到统一的错误横幅上
+    state.error = err instanceof Error ? err.message : String(err)
+  }
+}
+
+/**
+ * 下载新版本。
+ *
+ * 同样不走 guardAll，理由与 checkUpdate 一致。返回值只用来确认「这一刻的状态」，
+ * 之后进度靠 EVT_UPDATE_STATUS 一条条推回来 —— 所以这里写回 state.update 不是
+ * 乐观更新，只是接住主进程刚给出的那份快照。
+ */
+export async function downloadUpdate(): Promise<void> {
+  try {
+    state.update = await window.api.update.download()
+  } catch (err) {
+    state.error = err instanceof Error ? err.message : String(err)
+  }
+}
+
+/**
+ * 取消正在进行的下载。
+ *
+ * 不写 state.update：真正的收尾（退回 available）是 download() 里 abort 之后的
+ * catch 做的，那条路径会广播状态；这里再写一次只会和它抢最后写入权。
+ */
+export async function cancelUpdate(): Promise<void> {
+  try {
+    await window.api.update.cancel()
+  } catch (err) {
+    state.error = err instanceof Error ? err.message : String(err)
+  }
+}
+
+/** 在文件管理器里选中已下载的安装包（SmartScreen 拦下静默安装时的兜底出口） */
+export async function revealUpdate(): Promise<void> {
+  try {
+    await window.api.update.reveal()
+  } catch (err) {
+    state.error = err instanceof Error ? err.message : String(err)
+  }
+}
+
+/**
+ * 静默安装并退出。
+ *
+ * 这个调用**正常不会返回**：主进程起完安装器就 `app.exit(0)`，本进程随即消失。
+ * 因此这里刻意不写 state.update、也不在任何 finally 里清掉「安装中」的样子 ——
+ * 界面必须一直保持那个状态直到进程自己没掉，否则用户会以为失败了再点一次。
+ *
+ * 唯一会走到下一行的情况是安装器根本没起来（Updater 会退回 ready + error），
+ * 那时返回值里就有话可说了。
+ */
+export async function installUpdate(restartMarked: boolean): Promise<void> {
+  try {
+    state.update = await window.api.update.install({ restartMarked })
+  } catch (err) {
+    state.error = err instanceof Error ? err.message : String(err)
+  }
 }
 
 /**

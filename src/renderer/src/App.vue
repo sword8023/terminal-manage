@@ -7,6 +7,7 @@ import GroupTree from './components/GroupTree.vue'
 import LogPanel from './components/LogPanel.vue'
 import NewNodeModal from './components/NewNodeModal.vue'
 import SettingsModal from './components/SettingsModal.vue'
+import UpdateModal from './components/UpdateModal.vue'
 import VisibilityModal from './components/VisibilityModal.vue'
 import {
   dismissCrash,
@@ -26,6 +27,7 @@ import {
 
 type Modal =
   | { kind: 'settings' }
+  | { kind: 'update' }
   | { kind: 'visibility'; rootId: string | null; label: string }
   | { kind: 'node'; parentId: string | null; mode: 'project' | 'group' }
   | { kind: 'command'; node: CommandNode | null; parentId: string | null }
@@ -43,6 +45,51 @@ onMounted(() => {
 // 而 Vite HMR 每热更一次 App.vue 就再挂一批 listener —— 同一条日志渲染多份、
 // 状态与树事件被重复处理，越热越重。
 onBeforeUnmount(dispose)
+
+// ---------------------------------------------------------------------------
+// 升级入口（常驻）
+// ---------------------------------------------------------------------------
+//
+// 标题栏这个按钮一直挂着，标签直接说清楚升级现在处于哪一步。常驻是刻意的：
+// 托盘菜单里也有「检查更新」，若结果只藏在设置弹窗里，用户点了托盘看不到任何变化 ——
+// 本仓库反复避免的就是这种「点了没反应」。
+
+const updatePhase = computed(() => state.update?.phase ?? 'idle')
+
+const updateLabel = computed(() => {
+  switch (updatePhase.value) {
+    case 'checking':
+      return '检查中…'
+    case 'up-to-date':
+      return '已是最新'
+    case 'available':
+      return state.update?.info?.version
+        ? `发现新版本 ${state.update.info.version}`
+        : '发现新版本'
+    case 'downloading': {
+      const progress = state.update?.progress
+      return progress === undefined || progress === null
+        ? '下载中…'
+        : `下载中 ${Math.round(progress * 100)}%`
+    }
+    case 'ready':
+      return '重启并安装'
+    case 'installing':
+      return '正在安装…'
+    case 'error':
+      return '更新失败'
+    case 'unsupported':
+      return '不支持更新'
+    default:
+      return '检查更新'
+  }
+})
+
+/** 「检查中」与「正在安装」时不必打开窗口：里面除了转圈没有别的内容 */
+const updateBusy = computed(() => {
+  const phase = updatePhase.value
+  return phase === 'checking' || phase === 'installing'
+})
 
 // ---------------------------------------------------------------------------
 // 崩溃提示
@@ -147,6 +194,14 @@ function openCommand(node: CommandNode | null, parentId: string | null): void {
         启动已标记
       </button>
       <button class="btn" :disabled="Boolean(state.busyAll)" @click="stopAll()">全部停止</button>
+      <button
+        class="btn ghost"
+        :disabled="updateBusy"
+        title="打开升级窗口：新版本说明、下载进度与安装确认都在那里"
+        @click="modal = { kind: 'update' }"
+      >
+        {{ updateLabel }}
+      </button>
       <button class="btn ghost" @click="modal = { kind: 'settings' }">设置</button>
     </header>
 
@@ -198,7 +253,13 @@ function openCommand(node: CommandNode | null, parentId: string | null): void {
       </div>
     </div>
 
-    <SettingsModal v-if="modal?.kind === 'settings'" @close="modal = null" />
+    <SettingsModal
+      v-if="modal?.kind === 'settings'"
+      @close="modal = null"
+      @update="modal = { kind: 'update' }"
+    />
+
+    <UpdateModal v-if="modal?.kind === 'update'" @close="modal = null" />
 
     <VisibilityModal
       v-if="modal?.kind === 'visibility'"

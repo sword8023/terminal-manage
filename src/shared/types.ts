@@ -127,6 +127,21 @@ export interface AppSettings {
    * 所以收起状态不会让人错过报错。
    */
   logCollapsed: boolean
+  /**
+   * 启动后自动检查更新。
+   *
+   * 关掉只影响**自动**检查 —— 设置里的「检查更新」按钮照常可用。两者刻意分开：
+   * 自动检查是应用自己发起的请求（用户没要求过），它有理由被关掉；手动点是
+   * 用户明确表达的意图，没有任何理由拒绝。
+   */
+  autoCheckUpdate: boolean
+  /**
+   * 自定义更新源（`latest.json` 的完整地址）。空字符串 = 用代码内置的默认源。
+   *
+   * 做成可填的是因为本工具的用户就是「自己 + 团队几个人」：源换了域名不该逼着
+   * 每个人去装一个新版本。完整的覆盖顺序见 core/updateFeed.ts 的 resolveFeedUrl。
+   */
+  updateFeedUrl: string
 }
 
 export interface AppConfig {
@@ -272,6 +287,74 @@ export interface EnvInfo {
   userData: string
   /** 本机环境变量里是否存在 NO_COLOR，用于向用户解释彩色开关 */
   noColorInEnv: boolean
+  /** 应用自身版本（app.getVersion()），设置页要显示，也是更新检查的比较基准 */
+  version: string
+  /**
+   * 是否是打包后的构建（app.isPackaged）。
+   *
+   * 界面据此解释「为什么开发模式下不自动检查更新」——
+   * 否则 dev 里那个永远停在「还没检查过」的状态看起来就像坏了。
+   */
+  packaged: boolean
+}
+
+// ---------------------------------------------------------------------------
+// 更新（升级）模型 —— 不持久化，全部由主进程的 Updater 持有
+// ---------------------------------------------------------------------------
+
+/**
+ * 更新流程的状态机。
+ *
+ * 这是**唯一**的进度真相：渲染层只负责按它渲染，自己不拼状态。理由和
+ * ProcessManager 一样 —— 一旦两侧各存一份，「界面显示正在下载、主进程其实
+ * 早失败了」这种漂移必然发生，且无从定位。
+ */
+export type UpdatePhase =
+  | 'unsupported' // 非 Windows：本工具的更新链路只覆盖 win-x64
+  | 'idle' // 本次启动还没检查过
+  | 'checking'
+  | 'up-to-date'
+  | 'available' // 已确认有新版本，还没下载
+  | 'downloading'
+  | 'ready' // 下载完成且 sha256 校验通过
+  | 'installing' // 已 spawn 安装器，本进程即将退出
+  | 'error'
+
+export interface UpdateAsset {
+  url: string
+  /** 字节数；服务端没给时为 0，此时进度条退回不确定态 */
+  size: number
+  /** 64 位小写十六进制。下载完成必须与它逐字节相等，否则整个包作废 */
+  sha256: string
+}
+
+export interface UpdateInfo {
+  version: string
+  /** 更新说明，来自更新源。渲染时**必须**当纯文本，它来自网络 */
+  notes?: string
+  publishedAt?: string
+  /**
+   * 当前版本低于更新源的 minVersion。
+   *
+   * 只用来把文案从「有新版本」改成「必须升级」，**不**阻止应用启动 ——
+   * 拦了就会有人被挡在门外却没有任何自救手段。
+   */
+  required: boolean
+  asset: UpdateAsset
+}
+
+export interface UpdateState {
+  phase: UpdatePhase
+  /** 当前运行的版本，来自 app.getVersion()（由主进程注入，便于脱离 Electron 单测） */
+  current: string
+  /** phase 为 available / downloading / ready 时有值 */
+  info?: UpdateInfo
+  /** 0–1；服务端没给 content-length 时为 null，界面显示不确定进度条 */
+  progress?: number | null
+  bytesPerSecond?: number
+  /** phase === 'ready' 时已落盘的安装包路径 */
+  filePath?: string
+  error?: string
 }
 
 // ---------------------------------------------------------------------------

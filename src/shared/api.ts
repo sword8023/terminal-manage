@@ -17,6 +17,7 @@ import type {
   RescanResult,
   RuntimeState,
   TreeNode,
+  UpdateState,
 } from './types'
 
 /**
@@ -31,6 +32,7 @@ export interface EventMap {
   [CH.EVT_PROCESS_EXIT]: ExitInfo
   [CH.EVT_TREE_CHANGED]: TreeNode[]
   [CH.EVT_SETTINGS_CHANGED]: AppSettings
+  [CH.EVT_UPDATE_STATUS]: UpdateState
 }
 
 export type EventChannel = keyof EventMap
@@ -93,6 +95,38 @@ export interface TerminalManageApi {
   }
   env: {
     info(): Promise<EnvInfo>
+  }
+  /**
+   * 更新检查、下载与安装。
+   *
+   * 这几个都返回**当前完整状态**而不是增量：调用方拿到的永远是一份自洽的快照，
+   * 不必自己合并。
+   */
+  update: {
+    /** 取主进程当前持有的状态，用于界面重载后立即回到正确的显示 */
+    snapshot(): Promise<UpdateState>
+    /** 强制检查，忽略自动检查的开关与任何节流 */
+    check(): Promise<UpdateState>
+    /**
+     * 开始下载。返回时状态可能仍是 downloading —— 真正的进展由主进程经
+     * EVT_UPDATE_STATUS 陆续广播，返回值只保证「这一刻的状态」。
+     */
+    download(): Promise<UpdateState>
+    /** 取消正在进行的下载；没有下载时是空操作 */
+    cancel(): Promise<UpdateState>
+    /** 在文件管理器里选中已下载的安装包；没有文件时返回 false */
+    reveal(): Promise<boolean>
+    /**
+     * 静默安装已下载的包并退出应用。
+     *
+     * `restartMarked`：升级完（应用重启后）要不要把「已标记」的命令一并拉起来。
+     * 默认必须是关的 —— 见 docs/升级模块方案.md §7，随手拉起一堆 dev server
+     * 正是本工具特意放弃的默认行为。
+     *
+     * 这个调用**正常不会返回**：调用方要预期「请求发出后进程就没了」，
+     * 界面上的 loading 状态没有机会被自己清掉。
+     */
+    install(options: { restartMarked: boolean }): Promise<UpdateState>
   }
   /**
    * 订阅主进程推送的事件。

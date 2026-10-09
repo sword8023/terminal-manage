@@ -71,6 +71,16 @@ export const DEFAULT_SETTINGS: AppSettings = {
    * 不会让人错过报错。
    */
   logCollapsed: true,
+  /**
+   * 默认开启自动检查。
+   *
+   * 检查是 10 秒后的一次静默 GET，失败不留任何痕迹（见 Updater.check 的 silent
+   * 分支），所以「开着」对用户没有打扰成本；关掉它的理由只有一个 ——
+   * 完全不希望本应用联网。
+   */
+  autoCheckUpdate: true,
+  /** 空 = 用代码内置的默认源，见 core/updateFeed.ts */
+  updateFeedUrl: '',
 }
 
 /** splitRatio 的合法区间，太极端会让另一半几乎不可用 */

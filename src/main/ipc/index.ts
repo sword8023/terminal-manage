@@ -15,6 +15,7 @@ import type {
 import { defaultGroupName, readPackageInfo, scriptToCommand } from '../core/PackageReader'
 import { checkPort } from '../core/PortScanner'
 import type { ProcessManager } from '../core/ProcessManager'
+import type { Updater } from '../core/Updater'
 import { applyThemeSource, refreshWindowBackgrounds } from '../theme'
 import { collectCommands, descendantIds, resolvePath } from '../../shared/tree'
 import type { ConfigStore } from '../store/config'
@@ -22,6 +23,8 @@ import type { ConfigStore } from '../store/config'
 export interface IpcContext {
   store: ConfigStore
   processes: ProcessManager
+  /** 升级状态机。状态只在主进程里存一份，这里只读和触发 */
+  updater: Updater
   /** 向所有存活窗口广播事件 */
   broadcast: (channel: string, payload: unknown) => void
 }
@@ -83,7 +86,7 @@ export function collectMarkedSpecs(store: ConfigStore): SpawnSpec[] {
  * rejection。信封让 preload 统一拆包并抛出干净的 Error。
  */
 export function registerIpc(ctx: IpcContext): void {
-  const { store, processes, broadcast } = ctx
+  const { store, processes, updater, broadcast } = ctx
 
   const handle = <A extends unknown[], R>(
     channel: string,
@@ -347,11 +350,62 @@ export function registerIpc(ctx: IpcContext): void {
 
   handle(CH.PORT_CHECK, (port: number) => checkPort(port))
 
+  /**
+   * 升级状态的两个接口。
+   *
+   * `snapshot` 不只是「初始化时读一次」：它同时是渲染层状态丢了之后的补救手段。
+   * 界面上的升级状态完全来自广播事件，一旦错过一条（窗口还没建好、页面刚重载），
+   * 界面就会永久停在一个错误的状态上。
+   */
+  handle(CH.UPDATE_SNAPSHOT, () => updater.state)
+
+  // 返回完整的 UpdateState 而不是布尔值：调用方（设置弹窗里的按钮）需要拿到
+  // 失败原因、有没有新版本等一切信息，多包一层「成功/失败 + 再查一次状态」只会
+  // 让两边有两次机会对不上。
+  handle(CH.UPDATE_CHECK, () => updater.check())
+
+  handle(CH.UPDATE_DOWNLOAD, () => updater.download())
+
+  handle(CH.UPDATE_CANCEL, () => updater.cancelDownload())
+
+  /**
+   * 打开安装包所在文件夹。
+   *
+   * 返回布尔而不是 void：「没有文件」和「打开了」对界面是两件事 —— 前者说明状态
+   * 和磁盘已经不一致了，静默什么都不做只会让人反复点。
+   */
+  handle(CH.UPDATE_REVEAL, () => {
+    const filePath = updater.state.filePath
+    if (!filePath) return false
+    shell.showItemInFolder(filePath)
+    return true
+  })
+
+  /**
+   * 静默安装并退出。
+   *
+   * 这个 handler 正常**不会把结果送回渲染层**：install() 会在起完安装器后直接
+   * `app.exit(0)`。调用方（升级弹窗）因此必须假定「请求发出后进程就没了」，
+   * 不能把按钮的 loading 状态寄望于这个 Promise 落地。
+   */
+  handle(CH.UPDATE_INSTALL, (options: { restartMarked?: boolean } | undefined) =>
+    updater.install(options ?? {}),
+  )
+
   handle(CH.ENV_INFO, () => ({
     platform: process.platform,
     electron: process.versions.electron,
     node: process.versions.node,
     userData: app.getPath('userData'),
+    /**
+     * 当前版本号。
+     *
+     * 取 `app.getVersion()` 而不是读 package.json：打包后前者来自真正的
+     * 构建产物版本，后者在 asar 里读得到但可能和实际构建的那份不是同一个值。
+     */
+    version: app.getVersion(),
+    /** 是不是安装版。开发态（electron-vite dev）下升级功能整体不参与 */
+    packaged: app.isPackaged,
     /**
      * 本机环境里是否存在 NO_COLOR。
      *

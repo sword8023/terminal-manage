@@ -1,16 +1,27 @@
 import { app, BrowserWindow, Menu, Tray, nativeImage, shell } from 'electron'
 import type { NativeImage } from 'electron'
 import { appendFileSync, mkdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { CH } from '@shared/channels'
 import { ConfigStore } from './store/config'
 import { ProcessManager } from './core/ProcessManager'
+import { Updater } from './core/Updater'
+import { parseInstallerArgsOverride } from './core/installer'
+import { consumePendingRestart, pendingRestartPath } from './core/pendingRestart'
+import { resolveFeedUrl } from './core/updateFeed'
 import { collectMarkedSpecs, registerIpc } from './ipc'
 import { applyThemeSource, currentBackground } from './theme'
 
 const isDev = !app.isPackaged
 /** electron-vite 在 dev 模式下注入的渲染进程地址 */
 const rendererUrl = process.env['ELECTRON_RENDERER_URL']
+/**
+ * 启动之后隔多久做第一次自动检查。
+ *
+ * 10 秒是「等启动这点事彻底忙完」的量级：开机瞬间磁盘和 CPU 都还在抢，
+ * 此刻发请求只会让启动慢一点 —— 而升级这件事一点都不急。
+ */
+const AUTO_CHECK_DELAY_MS = 10_000
 
 /**
  * 排查「窗口不出来」的出口。
@@ -66,6 +77,7 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let store: ConfigStore | null = null
 let processes: ProcessManager | null = null
+let updater: Updater | null = null
 /** 区分「用户关窗口」与「真的在退出」，避免退出流程被 close 拦截 */
 let quitting = false
 
@@ -208,6 +220,16 @@ function createTray(): void {
         label: '全部停止',
         click: () => void processes?.stopAll(),
       },
+      {
+        // 先显示窗口再检查：结果由标题栏那个常驻的升级按钮呈现（状态本来就走
+        // EVT_UPDATE_STATUS 广播，界面已经有一份），这里不新开事件通道。
+        // 顺序反过来会出现「点了托盘，几秒后窗口才弹出来、还停在旧状态」。
+        label: '检查更新',
+        click: () => {
+          showWindow()
+          void updater?.check()
+        },
+      },
       { type: 'separator' },
       {
         label: '退出',
@@ -245,7 +267,67 @@ async function bootstrap(): Promise<void> {
     onExit: (info) => broadcast(CH.EVT_PROCESS_EXIT, info),
   })
 
-  registerIpc({ store, processes, broadcast })
+  /**
+   * 升级状态机。
+   *
+   * 取源地址传的是**函数**而不是当下的字符串：用户随时可能在设置里改源，
+   * 构造时定成一个值的话，改完设置的下一次检查还是打向老地址 —— 这种故障
+   * 没有任何症状，只会表现为「设置了新源但检查结果一直没变」。
+   */
+  const configStore = store
+  updater = new Updater({
+    currentVersion: app.getVersion(),
+    getFeedUrl: () => resolveFeedUrl(configStore.settings.updateFeedUrl),
+    // 安装包放 userData 而不是系统 temp：它跟着 TM_USER_DATA 一起被隔离（README.md:78），
+    // 端到端探针能干净地测；而且「打开所在文件夹」这个兜底入口需要它稳定留在原地
+    downloadDir: join(app.getPath('userData'), 'updates'),
+    // 「重启后要不要拉起命令」的意图文件。放 userData 下，跟着 TM_USER_DATA 一起被隔离
+    pendingRestartFile: pendingRestartPath(app.getPath('userData')),
+    // 安装目标＝当前 exe 所在目录。必须显式给：NSIS 静默安装不会自己找「现在装在哪」，
+    // 缺 /D 时它会安静地什么都不做（实测），那种失败看起来就像升级成功了
+    installDir: app.isPackaged ? dirname(app.getPath('exe')) : undefined,
+    // 测试专用的参数覆盖（见 installer.ts）：隔离验收要让安装器别再自动拉起
+    installerArgs: parseInstallerArgsOverride(process.env['TM_INSTALLER_ARGS']),
+    hooks: {
+      // 安装器要覆写安装目录里的 exe，先把在跑的命令全部停干净
+      dispose: async () => {
+        await processes?.dispose()
+      },
+      // 退出走的是 app.exit(0)，它会跳过 before-quit 里的收尾：设置若还压在防抖里就丢了
+      flush: async () => {
+        await configStore.flush()
+      },
+      // 必须是 app.exit(0) 而不是 app.quit()，理由见 Updater.install() 上的注释
+      exit: () => app.exit(0),
+    },
+    log: debugLog ? (message) => debugLog(`[update] ${message}`) : undefined,
+    onState: (state) => broadcast(CH.EVT_UPDATE_STATUS, state),
+  })
+
+  /**
+   * 上一次是「升完级自动重启」的话，在这里把当时标记的命令拉起来。
+   *
+   * 读取即消费：`consumePendingRestart` 无论内容是否可解析都会立刻删掉这个文件 ——
+   * 它描述的只是「刚刚那次升级」，留到下次启动还会照它拉命令，而那时用户早就
+   * 不记得自己勾过什么了。
+   *
+   * 放在 createWindow() 之前是有意的：渲染层初始化时会用 `snapshot` 拿到运行状态，
+   * 所以不依赖任何广播事件也能显示出正确结果。
+   */
+  const pendingRestart = await consumePendingRestart(pendingRestartPath(app.getPath('userData')))
+  if (pendingRestart) {
+    debugLog?.(
+      `[update] 检测到升级后重启意图：restartMarked=${String(pendingRestart.restartMarked)}` +
+        `（来自 ${pendingRestart.fromVersion}）`,
+    )
+    if (pendingRestart.restartMarked) {
+      void processes
+        .startAll(collectMarkedSpecs(configStore))
+        .catch((err: unknown) => console.error('[main] 升级后拉起命令失败：', err))
+    }
+  }
+
+  registerIpc({ store, processes, updater, broadcast })
 
   // 用持久化的设置校正开机自启（用户可能在别处改过）
   app.setLoginItemSettings({ openAtLogin: store.settings.autoLaunch })
@@ -266,6 +348,21 @@ async function bootstrap(): Promise<void> {
    * 现在「哪些命令要跑」完全由用户在卡片上标记、再手动点「启动已标记」决定，
    * 主进程只在收到那个指令时按 marked 挑目标（见 collectMarkedSpecs）。
    */
+
+  /**
+   * 自动检查更新：延迟、静默、且开发态默认不发。
+   *
+   * **静默**是这里最要紧的一处：这次请求用户从来没要求过。离线、公司网拦掉、
+   * 自建源在维护都是常态，此时在界面上弹一条红字只会让人以为应用坏了。失败时
+   * Updater 把状态原样退回，理由只写进 debug.log（见 Updater.check 的 silent 分支）。
+   *
+   * **开发态不发**：`npm run dev` 下版本号永远是 package.json 里那个，检查结果没有
+   * 意义，反而会在调试日志里持续制造噪音。手动点「检查更新」在开发态仍然可用 ——
+   * 那正是对着本机 file:// 或 127.0.0.1 的临时源验证协议的方式。
+   */
+  if (configStore.settings.autoCheckUpdate && (app.isPackaged || process.env['TM_UPDATE_FEED'])) {
+    setTimeout(() => void updater?.check({ silent: true }), AUTO_CHECK_DELAY_MS).unref()
+  }
 }
 
 async function shutdown(): Promise<void> {

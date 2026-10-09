@@ -88,6 +88,15 @@ const api: TerminalManageApi = {
     info: () => invoke(CH.ENV_INFO),
   },
 
+  update: {
+    snapshot: () => invoke(CH.UPDATE_SNAPSHOT),
+    check: () => invoke(CH.UPDATE_CHECK),
+    download: () => invoke(CH.UPDATE_DOWNLOAD),
+    cancel: () => invoke(CH.UPDATE_CANCEL),
+    reveal: () => invoke(CH.UPDATE_REVEAL),
+    install: (options) => invoke(CH.UPDATE_INSTALL, options),
+  },
+
   on: onEvent,
 }
 

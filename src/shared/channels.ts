@@ -33,12 +33,23 @@ export const CH = {
   PORT_CHECK: 'port:check',
   ENV_INFO: 'env:info',
 
+  // ---- 更新（升级）----
+  UPDATE_SNAPSHOT: 'update:snapshot',
+  UPDATE_CHECK: 'update:check',
+  UPDATE_DOWNLOAD: 'update:download',
+  UPDATE_CANCEL: 'update:cancel',
+  // 打开安装包所在文件夹：SmartScreen 拦下静默安装时，这是唯一的兜底出口
+  UPDATE_REVEAL: 'update:reveal',
+  // 静默安装 + 退出。这一步之后应用会自己结束，重启由安装器的 runAfterFinish 负责
+  UPDATE_INSTALL: 'update:install',
+
   // ---- 事件推送（main → renderer，send/on）----
   EVT_PROCESS_STATUS: 'evt:process:status',
   EVT_PROCESS_LOG: 'evt:process:log',
   EVT_PROCESS_EXIT: 'evt:process:exit',
   EVT_TREE_CHANGED: 'evt:tree:changed',
   EVT_SETTINGS_CHANGED: 'evt:settings:changed',
+  EVT_UPDATE_STATUS: 'evt:update:status',
 } as const
 
 export type Channel = (typeof CH)[keyof typeof CH]
@@ -50,4 +61,5 @@ export const EVENT_CHANNELS: readonly string[] = [
   CH.EVT_PROCESS_EXIT,
   CH.EVT_TREE_CHANGED,
   CH.EVT_SETTINGS_CHANGED,
+  CH.EVT_UPDATE_STATUS,
 ]
