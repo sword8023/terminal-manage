@@ -98,7 +98,7 @@ npm run dist        # = electron-vite build && electron-builder --win
 
 | 文件 | 说明 |
 |---|---|
-| `Terminal-Manage-0.1.0-setup.exe` | NSIS 安装包，约 106 MB |
+| `Terminal-Manage-0.1.1-setup.exe` | NSIS 安装包，约 106 MB |
 | `win-unpacked\` | 免安装的裸目录，调试时直接跑这里的 exe 更快 |
 
 安装是**用户级**的（`perMachine: false`）：装到 `%LOCALAPPDATA%\Programs\Terminal Manage`，不弹 UAC；卸载时**不会**删 `%APPDATA%\terminal-manage`，所以卸载重装不用重新配一遍命令树。
